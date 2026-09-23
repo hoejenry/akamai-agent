@@ -1,0 +1,25 @@
+{
+  "name": "akamai-agent",
+  "version": "1.0.0",
+  "description": "Akamai AI agent MCP server — delivery, security, DNS, and reporting",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "akamai-agent": "src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "web": "node server.js",
+    "start:delivery": "node src/index.js --services delivery",
+    "start:security": "node src/index.js --services security",
+    "start:dns": "node src/index.js --services dns",
+    "start:reporting": "node src/index.js --services reporting",
+    "start:all": "node src/index.js --services delivery,security,dns,reporting"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "akamai-edgegrid": "^4.0.4",
+    "express": "^5.2.1"
+  }
+}
