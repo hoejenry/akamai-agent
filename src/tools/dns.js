@@ -1,7 +1,7 @@
 import { akamaiRequest, getAccountKey } from '../auth.js';
 
-function accountParam() {
-  const key = getAccountKey();
+function accountParam(section) {
+  const key = getAccountKey(section);
   return key ? { accountSwitchKey: key } : {};
 }
 
@@ -17,15 +17,15 @@ export const dnsTools = [
         showAll:    { type: 'boolean', description: 'Show all zones across all accounts (requires access). Default false.' },
       },
     },
-    handler: async ({ search, contractIds, showAll } = {}) => {
+    handler: async ({ search, contractIds, showAll, _section } = {}) => {
       const data = await akamaiRequest('/config-dns/v2/zones', {
         params: {
           search,
           contractIds: contractIds?.join(','),
           showAll,
-          ...accountParam(),
+          ...accountParam(_section),
         },
-      });
+      }, _section);
       const zones = data.zones || [];
       return {
         count: zones.length,
@@ -58,10 +58,10 @@ export const dnsTools = [
         name: { type: 'string', description: 'Filter by record name. Optional.' },
       },
     },
-    handler: async ({ zone, type, name }) => {
+    handler: async ({ zone, type, name, _section }) => {
       const data = await akamaiRequest(`/config-dns/v2/zones/${zone}/recordsets`, {
-        params: { types: type, search: name, ...accountParam() },
-      });
+        params: { types: type, search: name, ...accountParam(_section) },
+      }, _section);
       const records = data.recordsets || [];
       return {
         zone,
@@ -96,12 +96,12 @@ export const dnsTools = [
         rdata: { type: 'array', items: { type: 'string' }, description: 'Record data. For A: ["1.2.3.4"]. For MX: ["10 mail.example.com."]. For TXT: ["v=spf1 include:... ~all"].' },
       },
     },
-    handler: async ({ zone, name, type, ttl, rdata }) => {
+    handler: async ({ zone, name, type, ttl, rdata, _section }) => {
       await akamaiRequest(`/config-dns/v2/zones/${zone}/recordsets`, {
         method: 'POST',
-        params: accountParam(),
+        params: accountParam(_section),
         body: { name, type, ttl, rdata },
-      });
+      }, _section);
       return {
         zone,
         created: { name, type, ttl, rdata },
@@ -127,11 +127,11 @@ export const dnsTools = [
         type: { type: 'string', description: 'Record type to delete.' },
       },
     },
-    handler: async ({ zone, name, type }) => {
+    handler: async ({ zone, name, type, _section }) => {
       await akamaiRequest(`/config-dns/v2/zones/${zone}/recordsets/${name}/${type}`, {
         method: 'DELETE',
-        params: accountParam(),
-      });
+        params: accountParam(_section),
+      }, _section);
       return {
         zone,
         deleted: { name, type },
@@ -154,10 +154,10 @@ export const dnsTools = [
         zone: { type: 'string', description: 'Zone name.' },
       },
     },
-    handler: async ({ zone }) => {
+    handler: async ({ zone, _section }) => {
       const data = await akamaiRequest(`/config-dns/v2/zones/${zone}`, {
-        params: accountParam(),
-      });
+        params: accountParam(_section),
+      }, _section);
       return {
         zone:             data.zone,
         type:             data.type,

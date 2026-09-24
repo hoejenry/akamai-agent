@@ -1,7 +1,7 @@
 import { akamaiRequest, getAccountKey } from '../auth.js';
 
-function accountParam() {
-  const key = getAccountKey();
+function accountParam(section) {
+  const key = getAccountKey(section);
   return key ? { accountSwitchKey: key } : {};
 }
 
@@ -17,10 +17,10 @@ export const deliveryTools = [
         search:     { type: 'string', description: 'Filter properties by name substring. Optional.' },
       },
     },
-    handler: async ({ contractId, groupId, search } = {}) => {
+    handler: async ({ contractId, groupId, search, _section } = {}) => {
       const data = await akamaiRequest('/papi/v1/properties', {
-        params: { contractId, groupId, ...accountParam() },
-      });
+        params: { contractId, groupId, ...accountParam(_section) },
+      }, _section);
       let items = data.properties?.items || [];
       if (search) items = items.filter(p => p.propertyName.toLowerCase().includes(search.toLowerCase()));
       const result = items.map(p => ({
@@ -57,10 +57,10 @@ export const deliveryTools = [
         groupId:     { type: 'string', description: 'Group ID. Required by PAPI.' },
       },
     },
-    handler: async ({ propertyId, version, contractId, groupId }) => {
+    handler: async ({ propertyId, version, contractId, groupId, _section }) => {
       const data = await akamaiRequest(`/papi/v1/properties/${propertyId}/versions/${version}/rules`, {
-        params: { contractId, groupId, ...accountParam() },
-      });
+        params: { contractId, groupId, ...accountParam(_section) },
+      }, _section);
       return {
         propertyId,
         version,
@@ -92,10 +92,10 @@ export const deliveryTools = [
         groupId:     { type: 'string' },
       },
     },
-    handler: async ({ propertyId, version, network, note, notifyEmails, acknowledgeAllWarnings, contractId, groupId }) => {
+    handler: async ({ propertyId, version, network, note, notifyEmails, acknowledgeAllWarnings, contractId, groupId, _section }) => {
       const data = await akamaiRequest(`/papi/v1/properties/${propertyId}/activations`, {
         method: 'POST',
-        params: { contractId, groupId, ...accountParam() },
+        params: { contractId, groupId, ...accountParam(_section) },
         body: {
           propertyVersion: version,
           network,
@@ -103,7 +103,7 @@ export const deliveryTools = [
           notifyEmails: notifyEmails || [],
           acknowledgeAllWarnings: acknowledgeAllWarnings || false,
         },
-      });
+      }, _section);
       return {
         activationId: data.activationLink?.split('/').pop(),
         activationLink: data.activationLink,
@@ -130,12 +130,12 @@ export const deliveryTools = [
         objects:  { type: 'array', items: { type: 'string' }, description: 'List of URLs, CP codes (as strings), or cache tags to purge.' },
       },
     },
-    handler: async ({ type, network, action = 'invalidate', objects }) => {
+    handler: async ({ type, network, action = 'invalidate', objects, _section }) => {
       const endpoint = `/ccu/v3/${action}/${type}/${network}`;
       const data = await akamaiRequest(endpoint, {
         method: 'POST',
         body: { objects },
-      });
+      }, _section);
       return {
         purgeId:          data.purgeId,
         httpStatus:       data.httpStatus,
@@ -162,10 +162,10 @@ export const deliveryTools = [
         search:     { type: 'string', description: 'Filter by CP code name substring.' },
       },
     },
-    handler: async ({ contractId, groupId, search } = {}) => {
+    handler: async ({ contractId, groupId, search, _section } = {}) => {
       const data = await akamaiRequest('/papi/v1/cpcodes', {
-        params: { contractId, groupId, ...accountParam() },
-      });
+        params: { contractId, groupId, ...accountParam(_section) },
+      }, _section);
       let items = data.cpcodes?.items || [];
       if (search) items = items.filter(c => c.cpcodeName.toLowerCase().includes(search.toLowerCase()));
       return {

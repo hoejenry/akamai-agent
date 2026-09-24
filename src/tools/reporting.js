@@ -1,7 +1,7 @@
 import { akamaiRequest, getAccountKey } from '../auth.js';
 
-function accountParam() {
-  const key = getAccountKey();
+function accountParam(section) {
+  const key = getAccountKey(section);
   return key ? { accountSwitchKey: key } : {};
 }
 
@@ -32,7 +32,7 @@ export const reportingTools = [
         metrics:   { type: 'array', items: { type: 'string' }, description: 'Metrics to include. Options: edgeHits, edgeBytes, originHits, originBytes, offloadRate. Default: all.' },
       },
     },
-    handler: async ({ cpCodes, startDate, endDate, interval = 'ONE_HOUR', metrics } = {}) => {
+    handler: async ({ cpCodes, startDate, endDate, interval = 'ONE_HOUR', metrics, _section } = {}) => {
       const range = defaultRange();
       const body = {
         objectType: 'cpcode',
@@ -44,9 +44,9 @@ export const reportingTools = [
       };
       const data = await akamaiRequest('/reporting-api/v1/reports/bytes-by-cpcode/versions/1/report-data', {
         method: 'POST',
-        params: accountParam(),
+        params: accountParam(_section),
         body,
-      });
+      }, _section);
       const rows = data.data || [];
       const summary = rows.reduce((acc, r) => {
         acc.totalEdgeHits   = (acc.totalEdgeHits   || 0) + (r.edgeHits   || 0);
@@ -92,11 +92,11 @@ export const reportingTools = [
         interval:  { type: 'string', enum: ['FIVE_MINUTES', 'ONE_HOUR', 'ONE_DAY'], description: 'Default: ONE_HOUR.' },
       },
     },
-    handler: async ({ cpCodes, startDate, endDate, interval = 'ONE_HOUR' }) => {
+    handler: async ({ cpCodes, startDate, endDate, interval = 'ONE_HOUR', _section }) => {
       const range = defaultRange();
       const data = await akamaiRequest('/reporting-api/v1/reports/error-summary-by-cpcode/versions/1/report-data', {
         method: 'POST',
-        params: accountParam(),
+        params: accountParam(_section),
         body: {
           objectType: 'cpcode',
           objectIds:  cpCodes.map(String),
@@ -105,7 +105,7 @@ export const reportingTools = [
           endDate:    endDate || range.end,
           interval,
         },
-      });
+      }, _section);
       const rows = data.data || [];
       const totals = rows.reduce((acc, r) => {
         acc.edgeErrors    = (acc.edgeErrors    || 0) + (r.edgeErrors    || 0);
@@ -142,18 +142,18 @@ export const reportingTools = [
         attackGroup: { type: 'string', description: 'Filter by attack group (e.g. "SQL", "XSS", "CMDI"). Optional.' },
       },
     },
-    handler: async ({ configId, startDate, endDate, policyId, attackGroup }) => {
+    handler: async ({ configId, startDate, endDate, policyId, attackGroup, _section }) => {
       const range = defaultRange();
       const params = {
         configId,
         from:   startDate || range.start,
         to:     endDate   || range.end,
-        ...accountParam(),
+        ...accountParam(_section),
       };
       if (policyId)    params.policyId    = policyId;
       if (attackGroup) params.attackGroup = attackGroup;
 
-      const data = await akamaiRequest('/appsec/v1/security-events', { params });
+      const data = await akamaiRequest('/appsec/v1/security-events', { params }, _section);
       const events = data.data || data.events || [];
       const byAction = events.reduce((acc, e) => {
         acc[e.action] = (acc[e.action] || 0) + 1;
@@ -191,11 +191,11 @@ export const reportingTools = [
         interval:  { type: 'string', enum: ['FIVE_MINUTES', 'ONE_HOUR', 'ONE_DAY'], description: 'Default: ONE_HOUR.' },
       },
     },
-    handler: async ({ cpCodes, startDate, endDate, interval = 'ONE_HOUR' }) => {
+    handler: async ({ cpCodes, startDate, endDate, interval = 'ONE_HOUR', _section }) => {
       const range = defaultRange();
       const data = await akamaiRequest('/reporting-api/v1/reports/hits-by-cpcode/versions/1/report-data', {
         method: 'POST',
-        params: accountParam(),
+        params: accountParam(_section),
         body: {
           objectType: 'cpcode',
           objectIds:  cpCodes.map(String),
@@ -204,7 +204,7 @@ export const reportingTools = [
           endDate:    endDate   || range.end,
           interval,
         },
-      });
+      }, _section);
       const rows = data.data || [];
       const totals = rows.reduce((acc, r) => {
         acc.cacheHits    = (acc.cacheHits   || 0) + (r.cacheHits   || 0);

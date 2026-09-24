@@ -1,7 +1,7 @@
 import { akamaiRequest, getAccountKey } from '../auth.js';
 
-function accountParam() {
-  const key = getAccountKey();
+function accountParam(section) {
+  const key = getAccountKey(section);
   return key ? { accountSwitchKey: key } : {};
 }
 
@@ -15,10 +15,10 @@ export const securityTools = [
         search: { type: 'string', description: 'Filter by config name substring.' },
       },
     },
-    handler: async ({ search } = {}) => {
+    handler: async ({ search, _section } = {}) => {
       const data = await akamaiRequest('/appsec/v1/configs', {
-        params: accountParam(),
-      });
+        params: accountParam(_section),
+      }, _section);
       let items = data.configurations || [];
       if (search) items = items.filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
       return {
@@ -52,10 +52,10 @@ export const securityTools = [
         version:  { type: 'number', description: 'Config version number. Use the latestVersion from list_security_configs.' },
       },
     },
-    handler: async ({ configId, version }) => {
+    handler: async ({ configId, version, _section }) => {
       const [config, policies] = await Promise.all([
-        akamaiRequest(`/appsec/v1/configs/${configId}/versions/${version}`, { params: accountParam() }),
-        akamaiRequest(`/appsec/v1/configs/${configId}/versions/${version}/security-policies`, { params: accountParam() }),
+        akamaiRequest(`/appsec/v1/configs/${configId}/versions/${version}`, { params: accountParam(_section) }, _section),
+        akamaiRequest(`/appsec/v1/configs/${configId}/versions/${version}/security-policies`, { params: accountParam(_section) }, _section),
       ]);
       return {
         configId,
@@ -89,10 +89,10 @@ export const securityTools = [
         extended:   { type: 'boolean', description: 'Include element count and last update info.' },
       },
     },
-    handler: async ({ type, search, extended } = {}) => {
+    handler: async ({ type, search, extended, _section } = {}) => {
       const data = await akamaiRequest('/network-list/v2/network-lists', {
-        params: { type, search, extended, ...accountParam() },
-      });
+        params: { type, search, extended, ...accountParam(_section) },
+      }, _section);
       const items = data.networkLists || [];
       return {
         count: items.length,
@@ -127,24 +127,24 @@ export const securityTools = [
         elements: { type: 'array', items: { type: 'string' }, description: 'IPs, CIDRs (e.g. "1.2.3.0/24"), or ISO country codes to add/remove.' },
       },
     },
-    handler: async ({ uniqueId, action, elements }) => {
+    handler: async ({ uniqueId, action, elements, _section }) => {
       const endpoint = `/network-list/v2/network-lists/${uniqueId}/append`;
       let data;
       if (action === 'ADD') {
         data = await akamaiRequest(endpoint, {
           method: 'POST',
           body: { list: elements },
-        });
+        }, _section);
       } else {
         // REMOVE: get current list, subtract elements, PUT full list
         const current = await akamaiRequest(`/network-list/v2/network-lists/${uniqueId}`, {
-          params: accountParam(),
-        });
+          params: accountParam(_section),
+        }, _section);
         const remaining = (current.list || []).filter(e => !elements.includes(e));
         data = await akamaiRequest(`/network-list/v2/network-lists/${uniqueId}`, {
           method: 'PUT',
           body: { ...current, list: remaining },
-        });
+        }, _section);
       }
       return {
         uniqueId,
@@ -174,14 +174,14 @@ export const securityTools = [
         notifyEmails: { type: 'array', items: { type: 'string' }, description: 'Notification email addresses.' },
       },
     },
-    handler: async ({ uniqueId, network, comment, notifyEmails }) => {
+    handler: async ({ uniqueId, network, comment, notifyEmails, _section }) => {
       const data = await akamaiRequest(`/network-list/v2/network-lists/${uniqueId}/environments/${network}/activate`, {
         method: 'POST',
         body: {
           comments:     comment || `Activated via Akamai Agent on ${new Date().toISOString()}`,
           notificationRecipients: notifyEmails || [],
         },
-      });
+      }, _section);
       return {
         uniqueId,
         network,
@@ -209,10 +209,10 @@ export const securityTools = [
         notifyEmails: { type: 'array', items: { type: 'string' } },
       },
     },
-    handler: async ({ configId, version, network, note, notifyEmails }) => {
+    handler: async ({ configId, version, network, note, notifyEmails, _section }) => {
       const data = await akamaiRequest(`/appsec/v1/activations`, {
         method: 'POST',
-        params: accountParam(),
+        params: accountParam(_section),
         body: {
           action:            'ACTIVATE',
           network,
@@ -220,7 +220,7 @@ export const securityTools = [
           notificationEmails: notifyEmails || [],
           activationConfigs: [{ configId, configVersion: version }],
         },
-      });
+      }, _section);
       return {
         activationId: data.activationId,
         status:       data.status,

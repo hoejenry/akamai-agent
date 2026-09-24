@@ -187,6 +187,22 @@
 
   .offload-bar { height: 8px; background: var(--surface2); border-radius: 4px; overflow: hidden; margin-top: 6px; }
   .offload-fill { height: 100%; border-radius: 4px; transition: width .4s; }
+
+  /* Customer selector */
+  .customer-wrap { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  .customer-label { font-size: 11px; color: var(--muted); font-weight: 500; white-space: nowrap; }
+  .customer-select { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); padding: 5px 28px 5px 10px; font-size: 13px; max-width: 200px; cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238b949e'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 9px center; }
+  .customer-select:focus { outline: none; border-color: var(--accent); }
+
+  /* Customer list in modal */
+  .customer-list-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 6px; background: var(--surface2); margin-bottom: 6px; }
+  .customer-list-item .name { font-family: var(--mono); font-size: 12px; flex: 1; }
+  .customer-list-item .host { font-size: 11px; color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .customer-list-item .actions { display: flex; gap: 4px; flex-shrink: 0; }
+  .customer-list-item .mini-btn { background: none; border: 1px solid var(--border); border-radius: 4px; color: var(--muted); padding: 2px 8px; font-size: 11px; cursor: pointer; }
+  .customer-list-item .mini-btn:hover { color: var(--text); border-color: var(--text); }
+  .customer-list-item .mini-btn.danger:hover { color: var(--red); border-color: var(--red); }
+  .customer-list-item.active-customer { border: 1px solid var(--accent); }
 </style>
 </head>
 <body>
@@ -204,12 +220,18 @@
     <button class="tab active" onclick="switchTab('dashboard')">Dashboard</button>
     <button class="tab" onclick="switchTab('chat')">Chat</button>
   </nav>
+  <div class="customer-wrap">
+    <span class="customer-label">Customer:</span>
+    <select class="customer-select" id="customer-select" onchange="setActiveSection(this.value)" title="Active customer account">
+      <option value="default">default</option>
+    </select>
+  </div>
   <div class="status-dot" id="cred-dot" title="Credentials not configured"></div>
   <button class="cred-btn" id="cred-btn" onclick="openCredentials()">
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
       <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
     </svg>
-    API Keys
+    Manage Accounts
   </button>
 </header>
 
@@ -228,9 +250,9 @@
         <span id="cred-status-text">Checking credential status…</span>
       </div>
 
-      <!-- Sections table shown when configured -->
+      <!-- Saved customer accounts -->
       <div id="cred-sections" style="display:none; margin-bottom:16px">
-        <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Configured Sections</div>
+        <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Saved Customer Accounts</div>
         <div id="cred-sections-list"></div>
       </div>
 
@@ -244,9 +266,9 @@
       <div class="cview active" id="cview-manual">
         <div class="field-row">
           <div class="field">
-            <label>SECTION NAME</label>
-            <input id="f-section" value="default" placeholder="default">
-            <div class="field-hint">Profile name inside ~/.edgerc</div>
+            <label>CUSTOMER NAME</label>
+            <input id="f-section" value="default" placeholder="acme-corp">
+            <div class="field-hint">Unique name for this account (becomes section in ~/.edgerc)</div>
           </div>
           <div class="field">
             <label>HOST</label>
@@ -364,6 +386,20 @@
 const chatHistory = [];
 let isStreaming = false;
 let uploadedContent = null;
+let activeSection = localStorage.getItem('akamaiSection') || 'default';
+
+// Return headers that include the active customer section for every API call
+function sectionHeaders(extra) {
+  return { 'Content-Type': 'application/json', 'X-Akamai-Section': activeSection, ...extra };
+}
+
+function setActiveSection(s) {
+  activeSection = s;
+  localStorage.setItem('akamaiSection', s);
+  const sel = document.getElementById('customer-select');
+  if (sel) sel.value = s;
+  loadDashboard();
+}
 
 // ----- Toast -----
 function showToast(msg, type = 'success') {
@@ -390,7 +426,7 @@ async function refreshCredStatus() {
       dot.className = 'status-dot';
       btn.className = 'cred-btn configured';
       sdot.className = 'dot green';
-      stxt.textContent = `Credentials configured — ${data.sections.filter(s=>s.complete).length} complete section(s)`;
+      stxt.textContent = `${data.sections.filter(s=>s.complete).length} customer account(s) configured`;
       clearBtn.style.display = '';
     } else {
       dot.className = 'status-dot unconfigured';
@@ -398,22 +434,78 @@ async function refreshCredStatus() {
       sdot.className = 'dot yellow';
       stxt.textContent = data.sections.length
         ? 'Credentials found but incomplete — fill in all four required fields.'
-        : 'No credentials configured. Add your Akamai API keys below.';
+        : 'No customer accounts configured. Add credentials below.';
       clearBtn.style.display = 'none';
     }
 
+    // Populate header customer dropdown
+    const sel = document.getElementById('customer-select');
+    const completeSections = data.sections.filter(s => s.complete);
+    if (completeSections.length) {
+      sel.innerHTML = completeSections.map(s =>
+        `<option value="${s.section}"${s.section === activeSection ? ' selected' : ''}>${s.section}</option>`
+      ).join('');
+      // If stored section is gone, reset to first
+      if (!completeSections.find(s => s.section === activeSection)) {
+        activeSection = completeSections[0].section;
+        localStorage.setItem('akamaiSection', activeSection);
+        sel.value = activeSection;
+      }
+    } else {
+      sel.innerHTML = '<option value="default">default</option>';
+    }
+
+    // Render customer list with Load/Delete actions
     if (data.sections.length) {
       sectionsEl.style.display = '';
       document.getElementById('cred-sections-list').innerHTML = data.sections.map(s => `
-        <div class="section-row">
-          <span style="font-family:var(--mono)">[${s.section}]</span>
-          <span>${s.host || '—'}</span>
-          <span class="badge ${s.complete ? 'green' : 'yellow'}">${s.complete ? '✓ complete' : 'incomplete'}</span>
+        <div class="customer-list-item${s.section === activeSection ? ' active-customer' : ''}">
+          <span class="name">${s.section}</span>
+          <span class="host">${s.host || '—'}</span>
+          <span class="badge ${s.complete ? 'green' : 'yellow'}" style="flex-shrink:0">${s.complete ? '✓' : '!'}</span>
+          <div class="actions">
+            <button class="mini-btn" onclick="loadCustomer('${s.section}')" title="Edit this account">Edit</button>
+            <button class="mini-btn" onclick="setActiveSection('${s.section}')" title="Switch to this account">Switch</button>
+            <button class="mini-btn danger" onclick="deleteCustomer('${s.section}')" title="Remove credentials">Delete</button>
+          </div>
         </div>`).join('');
     } else {
       sectionsEl.style.display = 'none';
     }
   } catch { /* ignore */ }
+}
+
+function loadCustomer(sectionName) {
+  document.getElementById('f-section').value = sectionName;
+  // Switch to manual entry tab so user can update fields
+  document.querySelectorAll('.ctab').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.cview').forEach(v => v.classList.remove('active'));
+  document.querySelector('.ctab').classList.add('active');
+  document.getElementById('cview-manual').classList.add('active');
+  // Clear secret fields — they can't be read back from disk for security
+  document.getElementById('f-client-token').value = '';
+  document.getElementById('f-client-secret').value = '';
+  document.getElementById('f-access-token').value = '';
+  document.getElementById('f-host').value = '';
+  document.getElementById('f-account-key').value = '';
+  showToast(`Loaded [${sectionName}] — re-enter credentials to update`, 'success');
+}
+
+async function deleteCustomer(sectionName) {
+  if (!confirm(`Remove credentials for [${sectionName}]?`)) return;
+  try {
+    const res = await fetch('/api/credentials/section', {
+      method: 'DELETE',
+      headers: sectionHeaders(),
+      body: JSON.stringify({ section: sectionName }),
+    });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error || 'Delete failed', 'error'); return; }
+    showToast(`[${sectionName}] removed`, 'success');
+    await refreshCredStatus();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
 }
 
 function openCredentials() {
@@ -447,12 +539,13 @@ async function saveCredentials() {
       if (!uploadedContent) { showToast('No file selected', 'error'); return; }
       res = await fetch('/api/credentials/upload', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: sectionHeaders(),
         body: JSON.stringify({ content: uploadedContent }),
       });
     } else {
+      const newSection = document.getElementById('f-section').value.trim() || 'default';
       const body = {
-        section:       document.getElementById('f-section').value.trim() || 'default',
+        section:       newSection,
         client_token:  document.getElementById('f-client-token').value.trim(),
         client_secret: document.getElementById('f-client-secret').value.trim(),
         access_token:  document.getElementById('f-access-token').value.trim(),
@@ -461,16 +554,18 @@ async function saveCredentials() {
       };
       res = await fetch('/api/credentials/save', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: sectionHeaders(),
         body: JSON.stringify(body),
       });
     }
 
     const data = await res.json();
     if (!res.ok || data.error) { showToast(data.error || 'Save failed', 'error'); return; }
-    showToast(`Saved to ${data.path}`, 'success');
+
+    const savedSection = document.getElementById('f-section').value.trim() || 'default';
+    showToast(`Saved [${savedSection}] to ${data.path}`, 'success');
     await refreshCredStatus();
-    loadDashboard();
+    setActiveSection(savedSection);
   } catch (err) {
     showToast(err.message, 'error');
   } finally {
@@ -484,10 +579,10 @@ async function testCredentials() {
   btn.disabled = true;
   btn.textContent = 'Testing…';
   try {
-    const section = document.getElementById('f-section').value.trim() || 'default';
+    const section = document.getElementById('f-section').value.trim() || activeSection;
     const res = await fetch('/api/credentials/test', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: sectionHeaders(),
       body: JSON.stringify({ section }),
     });
     const data = await res.json();
@@ -505,9 +600,9 @@ async function testCredentials() {
 }
 
 async function clearCredentials() {
-  if (!confirm('Delete ~/.edgerc? This will remove all saved Akamai credentials.')) return;
+  if (!confirm('Delete ~/.edgerc? This will remove ALL saved customer accounts.')) return;
   try {
-    await fetch('/api/credentials', { method: 'DELETE' });
+    await fetch('/api/credentials', { method: 'DELETE', headers: sectionHeaders() });
     showToast('Credentials cleared', 'success');
     await refreshCredStatus();
   } catch (err) {
@@ -559,7 +654,7 @@ async function loadDashboard() {
   const el = document.getElementById('dash-content');
   el.innerHTML = '<div class="loading">Loading overview…</div>';
   try {
-    const res = await fetch('/api/dashboard');
+    const res = await fetch('/api/dashboard', { headers: { 'X-Akamai-Section': activeSection } });
     const data = await res.json();
     renderDashboard(data);
   } catch (err) {
@@ -708,7 +803,7 @@ async function fetchReport() {
   try {
     const res = await fetch('/api/report', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: sectionHeaders(),
       body: JSON.stringify({ type, cpCodes, interval }),
     });
     const data = await res.json();
@@ -821,7 +916,7 @@ async function sendMessage() {
   try {
     const res = await fetch('/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: sectionHeaders(),
       body: JSON.stringify({ messages: chatHistory }),
     });
 

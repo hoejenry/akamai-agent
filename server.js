@@ -80,6 +80,11 @@ const app = express();
 app.use(express.json());
 app.use(express.static('public'));
 
+// Extract the active customer section from a request (header takes precedence)
+function getSection(req) {
+  return (req.headers['x-akamai-section'] || 'default').trim();
+}
+
 // --- Credentials: status ---
 app.get('/api/credentials/status', (req, res) => {
   if (!existsSync(EDGERC_PATH)) {
@@ -143,13 +148,36 @@ app.post('/api/credentials/upload', (req, res) => {
   }
 });
 
-// --- Credentials: clear ~/.edgerc ---
+// --- Credentials: clear entire ~/.edgerc ---
 app.delete('/api/credentials', (req, res) => {
   try {
     if (existsSync(EDGERC_PATH)) {
       writeFileSync(EDGERC_PATH, '', { mode: 0o600 });
     }
     res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Credentials: delete a single customer section ---
+app.delete('/api/credentials/section', (req, res) => {
+  const { section } = req.body;
+  if (!section) return res.status(400).json({ error: 'section is required.' });
+  try {
+    const existing = existsSync(EDGERC_PATH)
+      ? parseEdgerc(readFileSync(EDGERC_PATH, 'utf8'))
+      : {};
+    if (!existing[section]) {
+      return res.status(404).json({ error: `Section [${section}] not found.` });
+    }
+    delete existing[section];
+    if (Object.keys(existing).length === 0) {
+      writeFileSync(EDGERC_PATH, '', { mode: 0o600 });
+    } else {
+      writeFileSync(EDGERC_PATH, serializeEdgerc(existing), { mode: 0o600 });
+    }
+    res.json({ ok: true, section });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -179,7 +207,7 @@ app.post('/api/tool/:name', async (req, res) => {
   const tool = toolMap[req.params.name];
   if (!tool) return res.status(404).json({ error: `Unknown tool: ${req.params.name}` });
   try {
-    const result = await tool.handler(req.body || {});
+    const result = await tool.handler({ ...(req.body || {}), _section: getSection(req) });
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -195,10 +223,11 @@ app.get('/api/dashboard', async (req, res) => {
     { key: 'dnsZones',   tool: 'list_dns_zones',        args: {} },
     { key: 'networkLists', tool: 'list_network_lists',  args: { extended: true } },
   ];
+  const section = getSection(req);
   await Promise.allSettled(
     fetches.map(async ({ key, tool: name, args }) => {
       try {
-        results[key] = await toolMap[name].handler(args);
+        results[key] = await toolMap[name].handler({ ...args, _section: section });
       } catch (err) {
         results[key] = { error: err.message };
       }
@@ -218,7 +247,7 @@ app.post('/api/report', async (req, res) => {
   }[type];
   if (!toolName) return res.status(400).json({ error: `Unknown report type: ${type}` });
   try {
-    const result = await toolMap[toolName].handler({ cpCodes, configId, startDate, endDate, interval });
+    const result = await toolMap[toolName].handler({ cpCodes, configId, startDate, endDate, interval, _section: getSection(req) });
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -232,6 +261,7 @@ app.post('/api/chat', async (req, res) => {
   res.setHeader('Connection', 'keep-alive');
 
   const { messages } = req.body;
+  const section = getSection(req);
 
   const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
 
@@ -243,7 +273,7 @@ app.post('/api/chat', async (req, res) => {
       const response = await anthropic.messages.create({
         model: MODEL,
         max_tokens: 4096,
-        system: SYSTEM_PROMPT,
+        system: `${SYSTEM_PROMPT}\n\nActive customer account: [${section}]`,
         tools: anthropicTools,
         messages: history,
       });
@@ -276,7 +306,7 @@ app.post('/api/chat', async (req, res) => {
               result = { error: `Unknown tool: ${block.name}` };
             } else {
               try {
-                result = await tool.handler(block.input || {});
+                result = await tool.handler({ ...(block.input || {}), _section: section });
               } catch (err) {
                 result = { error: err.message };
               }

@@ -3,10 +3,9 @@ import { readFileSync, existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 
-// Resolve credentials from ~/.edgerc or environment variables
-function resolveCredentials() {
+function resolveCredentials(section) {
   const edgercPath = process.env.AKAMAI_EDGERC_PATH || join(homedir(), '.edgerc');
-  const section = process.env.AKAMAI_EDGERC_SECTION || 'default';
+  const sectionName = section || process.env.AKAMAI_EDGERC_SECTION || 'default';
 
   // Prefer explicit env vars over .edgerc
   if (process.env.AKAMAI_CLIENT_TOKEN && process.env.AKAMAI_CLIENT_SECRET &&
@@ -32,13 +31,13 @@ function resolveCredentials() {
     );
   }
 
-  const eg = new EdgeGrid({ path: edgercPath, section });
+  const eg = new EdgeGrid({ path: edgercPath, section: sectionName });
   return eg.config;
 }
 
 // Make an authenticated request to an Akamai API
-export async function akamaiRequest(path, { method = 'GET', body, params } = {}) {
-  const creds = resolveCredentials();
+export async function akamaiRequest(path, { method = 'GET', body, params } = {}, section = null) {
+  const creds = resolveCredentials(section);
   const host = creds.host.startsWith('https://') ? creds.host : `https://${creds.host}`;
 
   const url = new URL(path, host);
@@ -80,6 +79,6 @@ export async function akamaiRequest(path, { method = 'GET', body, params } = {})
   });
 }
 
-export function getAccountKey() {
-  return process.env.AKAMAI_ACCOUNT_KEY || resolveCredentials().account_key || '';
+export function getAccountKey(section = null) {
+  return process.env.AKAMAI_ACCOUNT_KEY || resolveCredentials(section).account_key || '';
 }
