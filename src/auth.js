@@ -32,7 +32,14 @@ function resolveCredentials(section) {
   }
 
   const eg = new EdgeGrid({ path: edgercPath, section: sectionName });
-  return eg.config;
+  const cfg = eg.config;
+  if (!cfg || !cfg.host) {
+    throw new Error(
+      `Section [${sectionName}] not found or incomplete in ${edgercPath}. ` +
+      `Ensure client_token, client_secret, access_token, and host are all present.`
+    );
+  }
+  return cfg;
 }
 
 // Make an authenticated request to an Akamai API
