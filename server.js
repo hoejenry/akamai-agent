@@ -7,6 +7,7 @@ import { deliveryTools } from './src/tools/delivery.js';
 import { securityTools } from './src/tools/security.js';
 import { dnsTools } from './src/tools/dns.js';
 import { reportingTools } from './src/tools/reporting.js';
+import { akamaiRequest } from './src/auth.js';
 
 const EDGERC_PATH = join(homedir(), '.edgerc');
 
@@ -199,6 +200,73 @@ app.post('/api/credentials/test', async (req, res) => {
     res.json({ ok: true, section, message: `Connection successful — found ${result.count} CP codes.` });
   } catch (err) {
     res.json({ ok: false, section, error: err.message });
+  }
+});
+
+// --- Account discovery: contracts, groups, products, CP codes ---
+app.get('/api/account/discover', async (req, res) => {
+  const section = getSection(req);
+  try {
+    // Contracts and groups in parallel
+    const [contractsRes, groupsRes] = await Promise.allSettled([
+      akamaiRequest('/papi/v1/contracts', {}, section),
+      akamaiRequest('/papi/v1/groups', {}, section),
+    ]);
+
+    const contracts = contractsRes.status === 'fulfilled'
+      ? (contractsRes.value.contracts?.items || []) : [];
+    const accountId = contractsRes.status === 'fulfilled'
+      ? contractsRes.value.accountId : null;
+    const groups = groupsRes.status === 'fulfilled'
+      ? (groupsRes.value.groups?.items || []) : [];
+
+    // Products for each contract in parallel (cap at 10 contracts)
+    const productResults = await Promise.all(
+      contracts.slice(0, 10).map(c =>
+        akamaiRequest('/papi/v1/products', { params: { contractId: c.contractId } }, section)
+          .then(d => ({ contractId: c.contractId, products: d.products?.items || [] }))
+          .catch(() => ({ contractId: c.contractId, products: [] }))
+      )
+    );
+    const products = {};
+    for (const p of productResults) products[p.contractId] = p.products;
+
+    // CP codes — use first contract + first matching group
+    let cpCodes = [];
+    if (contracts.length) {
+      const firstContract = contracts[0].contractId;
+      const firstGroup = groups.find(g => g.contractIds?.includes(firstContract));
+      try {
+        const cpData = await akamaiRequest('/papi/v1/cpcodes', {
+          params: { contractId: firstContract, groupId: firstGroup?.groupId },
+        }, section);
+        cpCodes = cpData.cpcodes?.items || [];
+      } catch { /* not all accounts expose CP codes */ }
+    }
+
+    res.json({
+      accountId,
+      contracts: contracts.map(c => ({
+        contractId:       c.contractId,
+        contractTypeName: c.contractTypeName,
+      })),
+      groups: groups.map(g => ({
+        groupId:     g.groupId,
+        groupName:   g.groupName,
+        contractIds: g.contractIds,
+      })),
+      products,
+      cpCodes: {
+        count: cpCodes.length,
+        items: cpCodes.slice(0, 30).map(c => ({
+          cpcodeId:   c.cpcodeId,
+          cpcodeName: c.cpcodeName,
+          products:   c.productIds,
+        })),
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

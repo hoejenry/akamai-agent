@@ -203,6 +203,27 @@
   .customer-list-item .mini-btn:hover { color: var(--text); border-color: var(--text); }
   .customer-list-item .mini-btn.danger:hover { color: var(--red); border-color: var(--red); }
   .customer-list-item.active-customer { border: 1px solid var(--accent); }
+
+  /* Account discovery panel */
+  .discovery-panel { margin-top: 18px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .discovery-header { background: var(--surface2); padding: 10px 14px; font-size: 12px; font-weight: 600; color: var(--accent2); text-transform: uppercase; letter-spacing: .05em; display: flex; align-items: center; gap: 8px; }
+  .discovery-body { padding: 14px; display: grid; gap: 14px; }
+  .discovery-section { }
+  .discovery-section-title { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+  .discovery-id { font-family: var(--mono); font-size: 13px; color: var(--text); background: var(--surface2); padding: 5px 10px; border-radius: 5px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .copy-btn { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 11px; padding: 2px 6px; border-radius: 3px; }
+  .copy-btn:hover { color: var(--text); background: var(--border); }
+  .disc-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .disc-table th { color: var(--muted); font-weight: 500; padding: 3px 8px; text-align: left; border-bottom: 1px solid var(--border); }
+  .disc-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); }
+  .disc-table tr:last-child td { border: none; }
+  .product-chip { display: inline-block; background: #009bde15; color: var(--accent); border: 1px solid #009bde33; border-radius: 12px; padding: 1px 8px; font-size: 11px; margin: 1px 2px; }
+  .cp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 5px; }
+  .cp-item { background: var(--surface2); border-radius: 5px; padding: 5px 8px; font-size: 11px; }
+  .cp-item .cp-id { font-family: var(--mono); color: var(--accent2); font-size: 10px; }
+  .cp-item .cp-name { color: var(--text); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .discovery-loading { text-align: center; padding: 18px; color: var(--muted); font-size: 12px; }
+  .disc-more { font-size: 11px; color: var(--muted); margin-top: 5px; }
 </style>
 </head>
 <body>
@@ -316,9 +337,25 @@
         <pre class="upload-preview" id="upload-preview" style="display:none"></pre>
       </div>
 
+      <!-- Account discovery panel (shown after save/test/discover) -->
+      <div class="discovery-panel" id="discovery-panel" style="display:none">
+        <div class="discovery-header">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          Account Details
+          <span id="discovery-section-label" style="font-family:var(--mono);color:var(--muted);font-weight:400;margin-left:4px"></span>
+        </div>
+        <div class="discovery-body" id="discovery-body">
+          <div class="discovery-loading">Fetching account details…</div>
+        </div>
+      </div>
+
     </div>
     <div class="modal-footer">
       <button class="btn btn-danger" id="clear-btn" onclick="clearCredentials()" style="margin-right:auto;display:none">Clear ~/.edgerc</button>
+      <button class="btn btn-ghost" onclick="discoverAccount()" id="discover-btn" style="display:none" title="Fetch contracts, products, and CP codes for the active account">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        Discover
+      </button>
       <button class="btn btn-ghost" onclick="testCredentials()" id="test-btn">Test Connection</button>
       <button class="btn btn-primary" onclick="saveCredentials()" id="save-btn">Save Credentials</button>
     </div>
@@ -422,12 +459,14 @@ async function refreshCredStatus() {
     const sectionsEl = document.getElementById('cred-sections');
     const clearBtn = document.getElementById('clear-btn');
 
+    const discoverBtn = document.getElementById('discover-btn');
     if (data.configured) {
       dot.className = 'status-dot';
       btn.className = 'cred-btn configured';
       sdot.className = 'dot green';
       stxt.textContent = `${data.sections.filter(s=>s.complete).length} customer account(s) configured`;
       clearBtn.style.display = '';
+      discoverBtn.style.display = '';
     } else {
       dot.className = 'status-dot unconfigured';
       btn.className = 'cred-btn';
@@ -436,6 +475,7 @@ async function refreshCredStatus() {
         ? 'Credentials found but incomplete — fill in all four required fields.'
         : 'No customer accounts configured. Add credentials below.';
       clearBtn.style.display = 'none';
+      discoverBtn.style.display = 'none';
     }
 
     // Populate header customer dropdown
@@ -466,6 +506,7 @@ async function refreshCredStatus() {
           <div class="actions">
             <button class="mini-btn" onclick="loadCustomer('${s.section}')" title="Edit this account">Edit</button>
             <button class="mini-btn" onclick="setActiveSection('${s.section}')" title="Switch to this account">Switch</button>
+            <button class="mini-btn" onclick="discoverAccount('${s.section}')" title="Discover contracts, products, CP codes">Discover</button>
             <button class="mini-btn danger" onclick="deleteCustomer('${s.section}')" title="Remove credentials">Delete</button>
           </div>
         </div>`).join('');
@@ -489,6 +530,106 @@ function loadCustomer(sectionName) {
   document.getElementById('f-host').value = '';
   document.getElementById('f-account-key').value = '';
   showToast(`Loaded [${sectionName}] — re-enter credentials to update`, 'success');
+}
+
+async function discoverAccount(sectionOverride) {
+  const section = sectionOverride || activeSection;
+  const panel = document.getElementById('discovery-panel');
+  const body  = document.getElementById('discovery-body');
+  const label = document.getElementById('discovery-section-label');
+  panel.style.display = '';
+  label.textContent = `[${section}]`;
+  body.innerHTML = '<div class="discovery-loading">Fetching account details…</div>';
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  try {
+    const res = await fetch('/api/account/discover', {
+      headers: { 'X-Akamai-Section': section },
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      body.innerHTML = `<div style="color:var(--red);font-size:13px">Discovery failed: ${data.error || 'Unknown error'}</div>`;
+      return;
+    }
+    renderDiscovery(body, data);
+  } catch (err) {
+    body.innerHTML = `<div style="color:var(--red);font-size:13px">${err.message}</div>`;
+  }
+}
+
+function renderDiscovery(body, data) {
+  let html = '';
+
+  // Account ID
+  if (data.accountId) {
+    html += `<div class="discovery-section">
+      <div class="discovery-section-title">Account ID</div>
+      <div class="discovery-id">
+        <span>${data.accountId}</span>
+        <button class="copy-btn" onclick="navigator.clipboard.writeText('${data.accountId}');this.textContent='✓';setTimeout(()=>this.textContent='Copy',1500)">Copy</button>
+      </div>
+    </div>`;
+  }
+
+  // Contracts
+  if (data.contracts?.length) {
+    const rows = data.contracts.map(c => `
+      <tr>
+        <td><span style="font-family:var(--mono)">${c.contractId}</span></td>
+        <td style="color:var(--muted)">${c.contractTypeName || '—'}</td>
+        <td>
+          ${(data.products[c.contractId] || []).map(p =>
+            `<span class="product-chip" title="${p.productId}">${p.productName}</span>`
+          ).join('') || '<span style="color:var(--muted);font-size:11px">—</span>'}
+        </td>
+      </tr>`).join('');
+    html += `<div class="discovery-section">
+      <div class="discovery-section-title">Contracts &amp; Products</div>
+      <table class="disc-table">
+        <thead><tr><th>Contract ID</th><th>Type</th><th>Products</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }
+
+  // Groups
+  if (data.groups?.length) {
+    const topGroups = data.groups.filter(g => !data.groups.some(p => p.groupId && g.parentGroupId === p.groupId))
+      .slice(0, 8);
+    const rows = topGroups.map(g => `
+      <tr>
+        <td>${g.groupName}</td>
+        <td style="font-family:var(--mono);color:var(--muted)">${g.groupId}</td>
+        <td style="color:var(--muted)">${(g.contractIds || []).join(', ')}</td>
+      </tr>`).join('');
+    html += `<div class="discovery-section">
+      <div class="discovery-section-title">Account Groups (${data.groups.length} total)</div>
+      <table class="disc-table">
+        <thead><tr><th>Group Name</th><th>Group ID</th><th>Contracts</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      ${data.groups.length > 8 ? `<div class="disc-more">+ ${data.groups.length - 8} more groups</div>` : ''}
+    </div>`;
+  }
+
+  // CP Codes
+  if (data.cpCodes?.count !== undefined) {
+    const items = data.cpCodes.items || [];
+    html += `<div class="discovery-section">
+      <div class="discovery-section-title">CP Codes (${data.cpCodes.count} total)</div>
+      <div class="cp-grid">
+        ${items.map(c => `
+          <div class="cp-item">
+            <div class="cp-id">${c.cpcodeId}</div>
+            <div class="cp-name" title="${c.cpcodeName}">${c.cpcodeName}</div>
+          </div>`).join('')}
+      </div>
+      ${data.cpCodes.count > items.length
+        ? `<div class="disc-more">Showing ${items.length} of ${data.cpCodes.count} CP codes</div>` : ''}
+    </div>`;
+  }
+
+  body.innerHTML = html || '<div style="color:var(--muted);font-size:13px">No data returned — check API permissions.</div>';
 }
 
 async function deleteCustomer(sectionName) {
@@ -566,6 +707,7 @@ async function saveCredentials() {
     showToast(`Saved [${savedSection}] to ${data.path}`, 'success');
     await refreshCredStatus();
     setActiveSection(savedSection);
+    discoverAccount(savedSection);
   } catch (err) {
     showToast(err.message, 'error');
   } finally {
@@ -588,6 +730,7 @@ async function testCredentials() {
     const data = await res.json();
     if (data.ok) {
       showToast(data.message, 'success');
+      discoverAccount(section);
     } else {
       showToast(`Test failed: ${data.error}`, 'error');
     }
