@@ -52,12 +52,14 @@
   .modal-body { padding: 20px; overflow-y: auto; flex: 1; }
   .modal-footer { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; gap: 8px; justify-content: flex-end; }
 
-  /* Credential tabs inside modal */
-  .ctabs { display: flex; gap: 2px; margin-bottom: 18px; background: var(--surface2); border-radius: var(--radius); padding: 3px; }
-  .ctab { flex: 1; padding: 7px; border: none; background: none; border-radius: 6px; color: var(--muted); font-size: 13px; cursor: pointer; transition: all .15s; }
-  .ctab.active { background: var(--surface); color: var(--text); font-weight: 600; }
-  .cview { display: none; }
-  .cview.active { display: block; }
+  /* .edgerc import strip */
+  .import-strip { border: 1.5px dashed var(--border); border-radius: 7px; padding: 10px 14px; display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); cursor: pointer; transition: all .15s; margin-bottom: 16px; }
+  .import-strip:hover, .import-strip.drag { border-color: var(--accent); color: var(--text); background: #009bde08; }
+  .import-strip .import-label { flex: 1; }
+  .import-strip code { background: var(--surface2); padding: 1px 5px; border-radius: 3px; font-family: var(--mono); }
+  .import-link { color: var(--accent2); cursor: pointer; text-decoration: underline; }
+  .import-ok { color: var(--green); font-size: 12px; margin-bottom: 10px; }
+  .section-pick { margin-bottom: 14px; }
 
   /* Form fields */
   .field { margin-bottom: 14px; }
@@ -76,11 +78,6 @@
   .section-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
   .section-row:last-child { border: none; }
 
-  /* Upload zone */
-  .upload-zone { border: 2px dashed var(--border); border-radius: 8px; padding: 32px 20px; text-align: center; cursor: pointer; transition: all .15s; color: var(--muted); font-size: 13px; }
-  .upload-zone:hover, .upload-zone.drag { border-color: var(--accent); color: var(--text); background: #009bde0a; }
-  .upload-zone input { display: none; }
-  .upload-preview { background: var(--surface2); border-radius: 6px; padding: 10px 12px; font-family: var(--mono); font-size: 11px; color: var(--muted); max-height: 140px; overflow-y: auto; white-space: pre-wrap; margin-top: 12px; }
 
   /* Buttons */
   .btn { padding: 8px 16px; border-radius: var(--radius); font-size: 13px; font-weight: 500; cursor: pointer; border: none; transition: opacity .15s; }
@@ -277,64 +274,61 @@
         <div id="cred-sections-list"></div>
       </div>
 
-      <!-- Tab switcher -->
-      <div class="ctabs">
-        <button class="ctab active" onclick="switchCTab('manual', this)">Manual Entry</button>
-        <button class="ctab" onclick="switchCTab('upload', this)">Upload .edgerc</button>
+      <!-- Import strip: drag-drop or browse to auto-fill fields -->
+      <div class="import-strip" id="import-strip"
+        ondragover="event.preventDefault();this.classList.add('drag')"
+        ondragleave="this.classList.remove('drag')"
+        ondrop="handleDrop(event)"
+        onclick="document.getElementById('edgerc-file').click()">
+        <input type="file" id="edgerc-file" accept=".edgerc,text/plain" onchange="handleFileSelect(event)" style="display:none">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;opacity:.6">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+        <span class="import-label">Drop a <code>.edgerc</code> file to fill in the fields automatically, or <span class="import-link">browse</span></span>
       </div>
 
-      <!-- Manual entry -->
-      <div class="cview active" id="cview-manual">
-        <div class="field-row">
-          <div class="field">
-            <label>CUSTOMER NAME</label>
-            <input id="f-section" value="default" placeholder="acme-corp">
-            <div class="field-hint">Unique name for this account (becomes section in ~/.edgerc)</div>
-          </div>
-          <div class="field">
-            <label>HOST</label>
-            <input id="f-host" placeholder="akab-xxxx.luna.akamaiapis.net">
-          </div>
-        </div>
-        <div class="field">
-          <label>CLIENT TOKEN</label>
-          <input id="f-client-token" type="password" placeholder="akab-xxxxxxxxxxxxxxxx">
-        </div>
-        <div class="field">
-          <label>CLIENT SECRET</label>
-          <input id="f-client-secret" type="password" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
-        </div>
-        <div class="field">
-          <label>ACCESS TOKEN</label>
-          <input id="f-access-token" type="password" placeholder="akab-xxxxxxxxxxxxxxxx">
-        </div>
-        <div class="field">
-          <label>ACCOUNT SWITCH KEY <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
-          <input id="f-account-key" placeholder="1-ABCDEF">
-          <div class="field-hint">For multi-account management only</div>
-        </div>
-        <div style="background:var(--surface2);border-radius:6px;padding:10px 12px;font-size:12px;color:var(--muted);margin-top:4px">
-          Get these values from
-          <strong style="color:var(--text)">Akamai Control Center → Identity &amp; Access Management → API Clients</strong>.
-          Create a client with access to PAPI, Fast Purge, App Security, Network Lists, Edge DNS, and Reporting API.
-        </div>
+      <!-- Multi-section picker (shown only when uploaded file has >1 section) -->
+      <div class="section-pick field" id="section-picker" style="display:none">
+        <label>SECTION TO IMPORT</label>
+        <select id="section-picker-select" onchange="populateFieldsFromSection(this.value)"></select>
+        <div class="field-hint">Your .edgerc has multiple sections — pick one to load</div>
       </div>
 
-      <!-- File upload -->
-      <div class="cview" id="cview-upload">
-        <div class="upload-zone" id="upload-zone"
-          ondragover="event.preventDefault();this.classList.add('drag')"
-          ondragleave="this.classList.remove('drag')"
-          ondrop="handleDrop(event)"
-          onclick="document.getElementById('edgerc-file').click()">
-          <input type="file" id="edgerc-file" accept=".edgerc,text/plain" onchange="handleFileSelect(event)">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin:0 auto 10px;display:block;opacity:.5">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
-          </svg>
-          Drop your <code style="background:var(--surface);padding:1px 5px;border-radius:3px">.edgerc</code> file here, or click to browse
-          <div style="font-size:11px;margin-top:6px;opacity:.7">Supports standard EdgeGrid .edgerc format with one or more sections</div>
+      <!-- Import confirmation -->
+      <div class="import-ok" id="import-ok" style="display:none"></div>
+
+      <!-- Unified credential form (always visible) -->
+      <div class="field-row">
+        <div class="field">
+          <label>CUSTOMER NAME</label>
+          <input id="f-section" value="default" placeholder="acme-corp">
+          <div class="field-hint">Unique label for this account</div>
         </div>
-        <pre class="upload-preview" id="upload-preview" style="display:none"></pre>
+        <div class="field">
+          <label>HOST</label>
+          <input id="f-host" placeholder="akab-xxxx.luna.akamaiapis.net">
+        </div>
+      </div>
+      <div class="field">
+        <label>CLIENT TOKEN</label>
+        <input id="f-client-token" type="password" placeholder="akab-xxxxxxxxxxxxxxxx">
+      </div>
+      <div class="field">
+        <label>CLIENT SECRET</label>
+        <input id="f-client-secret" type="password" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+      </div>
+      <div class="field">
+        <label>ACCESS TOKEN</label>
+        <input id="f-access-token" type="password" placeholder="akab-xxxxxxxxxxxxxxxx">
+      </div>
+      <div class="field">
+        <label>ACCOUNT SWITCH KEY <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+        <input id="f-account-key" placeholder="1-ABCDEF">
+        <div class="field-hint">Multi-account setups only</div>
+      </div>
+      <div style="background:var(--surface2);border-radius:6px;padding:10px 12px;font-size:12px;color:var(--muted)">
+        Get these from <strong style="color:var(--text)">Control Center → Identity &amp; Access Management → API Clients</strong>.
+        Need access to PAPI, Fast Purge, App Security, Network Lists, Edge DNS, and Reporting.
       </div>
 
       <!-- Account discovery panel (shown after save/test/discover) -->
@@ -517,19 +511,15 @@ async function refreshCredStatus() {
 }
 
 function loadCustomer(sectionName) {
-  document.getElementById('f-section').value = sectionName;
-  // Switch to manual entry tab so user can update fields
-  document.querySelectorAll('.ctab').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.cview').forEach(v => v.classList.remove('active'));
-  document.querySelector('.ctab').classList.add('active');
-  document.getElementById('cview-manual').classList.add('active');
+  document.getElementById('f-section').value      = sectionName;
   // Clear secret fields — they can't be read back from disk for security
-  document.getElementById('f-client-token').value = '';
+  document.getElementById('f-client-token').value  = '';
   document.getElementById('f-client-secret').value = '';
-  document.getElementById('f-access-token').value = '';
-  document.getElementById('f-host').value = '';
-  document.getElementById('f-account-key').value = '';
-  showToast(`Loaded [${sectionName}] — re-enter credentials to update`, 'success');
+  document.getElementById('f-access-token').value  = '';
+  document.getElementById('f-host').value           = '';
+  document.getElementById('f-account-key').value    = '';
+  document.getElementById('import-ok').style.display = 'none';
+  showToast(`Editing [${sectionName}] — re-enter credentials to update`, 'success');
 }
 
 async function discoverAccount(sectionOverride) {
@@ -651,6 +641,10 @@ async function deleteCustomer(sectionName) {
 
 function openCredentials() {
   document.getElementById('cred-modal').classList.add('open');
+  document.getElementById('import-ok').style.display = 'none';
+  document.getElementById('section-picker').style.display = 'none';
+  document.getElementById('discovery-panel').style.display = 'none';
+  parsedEdgercSections = {};
   refreshCredStatus();
 }
 function closeCredentials() {
@@ -660,54 +654,37 @@ function closeOnBackdrop(e) {
   if (e.target === document.getElementById('cred-modal')) closeCredentials();
 }
 
-function switchCTab(name, btn) {
-  document.querySelectorAll('.ctab').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.cview').forEach(v => v.classList.remove('active'));
-  btn.classList.add('active');
-  document.getElementById(`cview-${name}`).classList.add('active');
-}
-
 async function saveCredentials() {
   const btn = document.getElementById('save-btn');
   btn.disabled = true;
   btn.textContent = 'Saving…';
 
   try {
-    const activeTab = document.querySelector('.ctab.active').textContent.trim();
-    let res;
-
-    if (activeTab === 'Upload .edgerc') {
-      if (!uploadedContent) { showToast('No file selected', 'error'); return; }
-      res = await fetch('/api/credentials/upload', {
-        method: 'POST',
-        headers: sectionHeaders(),
-        body: JSON.stringify({ content: uploadedContent }),
-      });
-    } else {
-      const newSection = document.getElementById('f-section').value.trim() || 'default';
-      const body = {
-        section:       newSection,
-        client_token:  document.getElementById('f-client-token').value.trim(),
-        client_secret: document.getElementById('f-client-secret').value.trim(),
-        access_token:  document.getElementById('f-access-token').value.trim(),
-        host:          document.getElementById('f-host').value.trim(),
-        account_key:   document.getElementById('f-account-key').value.trim(),
-      };
-      res = await fetch('/api/credentials/save', {
-        method: 'POST',
-        headers: sectionHeaders(),
-        body: JSON.stringify(body),
-      });
+    const newSection = document.getElementById('f-section').value.trim() || 'default';
+    const body = {
+      section:       newSection,
+      client_token:  document.getElementById('f-client-token').value.trim(),
+      client_secret: document.getElementById('f-client-secret').value.trim(),
+      access_token:  document.getElementById('f-access-token').value.trim(),
+      host:          document.getElementById('f-host').value.trim(),
+      account_key:   document.getElementById('f-account-key').value.trim(),
+    };
+    if (!body.client_token || !body.client_secret || !body.access_token || !body.host) {
+      showToast('Host, Client Token, Client Secret, and Access Token are required', 'error');
+      return;
     }
-
+    const res = await fetch('/api/credentials/save', {
+      method: 'POST',
+      headers: sectionHeaders(),
+      body: JSON.stringify(body),
+    });
     const data = await res.json();
     if (!res.ok || data.error) { showToast(data.error || 'Save failed', 'error'); return; }
 
-    const savedSection = document.getElementById('f-section').value.trim() || 'default';
-    showToast(`Saved [${savedSection}] to ${data.path}`, 'success');
+    showToast(`Saved [${newSection}] to ${data.path}`, 'success');
     await refreshCredStatus();
-    setActiveSection(savedSection);
-    discoverAccount(savedSection);
+    setActiveSection(newSection);
+    discoverAccount(newSection);
   } catch (err) {
     showToast(err.message, 'error');
   } finally {
@@ -753,32 +730,73 @@ async function clearCredentials() {
   }
 }
 
+let parsedEdgercSections = {};
+
 function handleFileSelect(e) {
   const file = e.target.files[0];
   if (file) readEdgercFile(file);
+  e.target.value = ''; // allow re-selecting same file
 }
 function handleDrop(e) {
   e.preventDefault();
-  document.getElementById('upload-zone').classList.remove('drag');
+  document.getElementById('import-strip').classList.remove('drag');
   const file = e.dataTransfer.files[0];
   if (file) readEdgercFile(file);
 }
 function readEdgercFile(file) {
   const reader = new FileReader();
-  reader.onload = (e) => {
-    uploadedContent = e.target.result;
-    const preview = document.getElementById('upload-preview');
-    preview.style.display = '';
-    // Mask secrets in preview
-    preview.textContent = uploadedContent
-      .replace(/client_secret\s*=\s*.+/g, 'client_secret = ••••••••••••••••')
-      .replace(/client_token\s*=\s*.+/g, 'client_token = ••••••••••••••••')
-      .replace(/access_token\s*=\s*.+/g, 'access_token = ••••••••••••••••');
-    document.getElementById('upload-zone').innerHTML =
-      `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2" style="display:block;margin:0 auto 8px"><polyline points="20 6 9 17 4 12"/></svg>
-       <strong style="color:var(--text)">${file.name}</strong> loaded`;
+  reader.onload = (ev) => {
+    const content = ev.target.result;
+    parsedEdgercSections = parseEdgercClient(content);
+    const names = Object.keys(parsedEdgercSections);
+    if (!names.length) {
+      showToast('No valid sections found in file', 'error');
+      return;
+    }
+    const picker = document.getElementById('section-picker');
+    const sel    = document.getElementById('section-picker-select');
+    if (names.length > 1) {
+      sel.innerHTML = names.map(n => `<option value="${n}">${n}</option>`).join('');
+      picker.style.display = '';
+    } else {
+      picker.style.display = 'none';
+    }
+    populateFieldsFromSection(names[0]);
+    const okEl = document.getElementById('import-ok');
+    okEl.textContent = `✓ Imported ${file.name} — ${names.length} section(s) found`;
+    okEl.style.display = '';
   };
   reader.readAsText(file);
+}
+
+function parseEdgercClient(content) {
+  const sections = {};
+  let current = null;
+  for (const raw of content.split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const m = line.match(/^\[(.+)\]$/);
+    if (m) { current = m[1]; sections[current] = {}; continue; }
+    if (current) {
+      const eq = line.indexOf('=');
+      if (eq !== -1) sections[current][line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+    }
+  }
+  return sections;
+}
+
+function populateFieldsFromSection(name) {
+  const s = parsedEdgercSections[name];
+  if (!s) return;
+  document.getElementById('f-section').value      = name;
+  document.getElementById('f-host').value         = s.host          || '';
+  document.getElementById('f-client-token').value = s.client_token  || '';
+  document.getElementById('f-client-secret').value= s.client_secret || '';
+  document.getElementById('f-access-token').value = s.access_token  || '';
+  document.getElementById('f-account-key').value  = s.account_key   || '';
+  if (Object.keys(parsedEdgercSections).length > 1) {
+    document.getElementById('section-picker-select').value = name;
+  }
 }
 
 // ----- Tab switching -----
