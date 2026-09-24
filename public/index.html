@@ -185,6 +185,12 @@
   .offload-bar { height: 8px; background: var(--surface2); border-radius: 4px; overflow: hidden; margin-top: 6px; }
   .offload-fill { height: 100%; border-radius: 4px; transition: width .4s; }
 
+  /* CP codes card */
+  .cp-search { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 7px 11px; font-size: 13px; margin-bottom: 12px; }
+  .cp-search:focus { outline: none; border-color: var(--accent); }
+  .cp-table-wrap { max-height: 320px; overflow-y: auto; }
+  .cp-count-badge { font-size: 11px; font-weight: 600; background: var(--surface2); color: var(--accent2); padding: 2px 8px; border-radius: 12px; margin-left: 6px; }
+
   /* Customer selector */
   .customer-wrap { display: flex; align-items: center; gap: 8px; margin-left: auto; }
   .customer-label { font-size: 11px; color: var(--muted); font-weight: 500; white-space: nowrap; }
@@ -827,17 +833,15 @@ function renderDashboard(data) {
   const el = document.getElementById('dash-content');
   el.innerHTML = '';
 
-  // Properties card
   el.appendChild(makePropertiesCard(data.properties));
-
-  // Security card
   el.appendChild(makeSecurityCard(data.secConfigs));
-
-  // DNS card
   el.appendChild(makeDNSCard(data.dnsZones));
-
-  // Network lists card
   el.appendChild(makeNetworkListsCard(data.networkLists));
+
+  // CP codes — full width
+  const cpCard = makeCPCodesCard(data.cpCodes);
+  cpCard.style.gridColumn = '1 / -1';
+  el.appendChild(cpCard);
 }
 
 function card(title, iconPath, bodyHTML, howTo) {
@@ -942,6 +946,77 @@ function makeNetworkListsCard(data) {
     <table class="data-table"><thead><tr><th>Name</th><th>Type</th><th>Entries</th><th>Prod</th></tr></thead>
     <tbody>${rows || '<tr><td colspan="4" style="color:var(--muted);text-align:center">No lists found</td></tr>'}</tbody></table>`;
   return card('Network Lists', '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>', body, data.howTo);
+}
+
+function makeCPCodesCard(data) {
+  const c = document.createElement('div');
+  c.className = 'card';
+  if (!data || data.error) {
+    c.innerHTML = `
+      <div class="card-header">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8"/></svg>
+        CP Codes
+      </div>
+      <div class="card-body"><div class="empty">${data?.error || 'No data — credentials required'}</div></div>`;
+    return c;
+  }
+
+  const allRows = (data.cpCodes || []);
+
+  c.innerHTML = `
+    <div class="card-header">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8"/></svg>
+      CP Codes
+      <span class="cp-count-badge">${data.count} total</span>
+      <button class="refresh-btn" style="margin-left:auto" onclick="loadDashboard()">↻</button>
+    </div>
+    <div class="card-body">
+      <input class="cp-search" id="cp-filter" placeholder="Filter by name, ID, or group…" oninput="filterCPCodes(this.value)" autocomplete="off">
+      <div class="cp-table-wrap">
+        <table class="data-table" id="cp-table">
+          <thead><tr><th>CP Code</th><th>Name</th><th>Group</th><th>Contract</th><th>Products</th></tr></thead>
+          <tbody id="cp-tbody"></tbody>
+        </table>
+      </div>
+      ${data.howTo ? `<div class="how-to" style="margin-top:12px"><div class="how-to-title">How-To</div><ul>${data.howTo.map(h=>`<li>${h}</li>`).join('')}</ul></div>` : ''}
+    </div>`;
+
+  // Store rows on the card element for filtering
+  c._cpRows = allRows;
+  setTimeout(() => renderCPRows(allRows), 0);
+  return c;
+}
+
+function renderCPRows(rows) {
+  const tbody = document.getElementById('cp-tbody');
+  if (!tbody) return;
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="color:var(--muted);text-align:center;padding:16px">No CP codes found</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(c => `
+    <tr>
+      <td><span style="font-family:var(--mono);color:var(--accent2)">${c.cpcodeId}</span></td>
+      <td>${escapeHtml(c.cpcodeName)}</td>
+      <td style="color:var(--muted)">${escapeHtml(c.groupName || '—')}</td>
+      <td style="font-family:var(--mono);font-size:11px;color:var(--muted)">${c.contractId || '—'}</td>
+      <td>${(c.products || []).map(p => `<span class="badge blue">${p}</span>`).join(' ') || '—'}</td>
+    </tr>`).join('');
+}
+
+let _allCPRows = [];
+function filterCPCodes(q) {
+  // Find the stored rows from the card's last render
+  const card = document.getElementById('cp-table')?.closest('.card');
+  const rows = card?._cpRows || [];
+  if (!q.trim()) { renderCPRows(rows); return; }
+  const lq = q.toLowerCase();
+  renderCPRows(rows.filter(c =>
+    c.cpcodeName.toLowerCase().includes(lq) ||
+    String(c.cpcodeId).includes(lq) ||
+    (c.groupName || '').toLowerCase().includes(lq) ||
+    (c.contractId || '').toLowerCase().includes(lq)
+  ));
 }
 
 async function fetchReport() {

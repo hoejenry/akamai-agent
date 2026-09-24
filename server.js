@@ -282,25 +282,77 @@ app.post('/api/tool/:name', async (req, res) => {
   }
 });
 
+// Fetch all CP codes across every group × contract combo, deduplicated by cpcodeId
+async function fetchAllCPCodes(section) {
+  const groupsData = await akamaiRequest('/papi/v1/groups', {}, section);
+  const groups = groupsData.groups?.items || [];
+
+  // Build every group × contractId pair
+  const combos = groups.flatMap(g =>
+    (g.contractIds || []).map(contractId => ({ groupId: g.groupId, contractId, groupName: g.groupName }))
+  );
+
+  const results = await Promise.allSettled(
+    combos.map(({ groupId, contractId, groupName }) =>
+      akamaiRequest('/papi/v1/cpcodes', { params: { groupId, contractId } }, section)
+        .then(d => (d.cpcodes?.items || []).map(c => ({ ...c, groupName, contractId })))
+        .catch(() => [])
+    )
+  );
+
+  const seen = new Set();
+  const all = [];
+  for (const r of results) {
+    if (r.status === 'fulfilled') {
+      for (const cp of r.value) {
+        if (!seen.has(cp.cpcodeId)) {
+          seen.add(cp.cpcodeId);
+          all.push(cp);
+        }
+      }
+    }
+  }
+  all.sort((a, b) => a.cpcodeName.localeCompare(b.cpcodeName));
+
+  return {
+    count: all.length,
+    cpCodes: all.map(c => ({
+      cpcodeId:   c.cpcodeId,
+      cpcodeName: c.cpcodeName,
+      products:   c.productIds || [],
+      groupName:  c.groupName,
+      contractId: c.contractId,
+    })),
+    howTo: [
+      'Use a CP code number with purge_cache (type: "cpcode") to purge all cached content under that code.',
+      'Pass CP code numbers to get_traffic_report or get_offload_report to see performance metrics.',
+      'CP codes drive billing — each code tracks traffic separately on your invoice.',
+    ],
+  };
+}
+
 // --- Dashboard data endpoint (parallel fetch of overview data) ---
 app.get('/api/dashboard', async (req, res) => {
   const results = {};
-  const fetches = [
-    { key: 'properties', tool: 'list_properties',      args: {} },
-    { key: 'secConfigs', tool: 'list_security_configs', args: {} },
-    { key: 'dnsZones',   tool: 'list_dns_zones',        args: {} },
-    { key: 'networkLists', tool: 'list_network_lists',  args: { extended: true } },
-  ];
   const section = getSection(req);
-  await Promise.allSettled(
-    fetches.map(async ({ key, tool: name, args }) => {
+  const fetches = [
+    { key: 'properties',   tool: 'list_properties',      args: {} },
+    { key: 'secConfigs',   tool: 'list_security_configs', args: {} },
+    { key: 'dnsZones',     tool: 'list_dns_zones',        args: {} },
+    { key: 'networkLists', tool: 'list_network_lists',    args: { extended: true } },
+  ];
+  await Promise.allSettled([
+    ...fetches.map(async ({ key, tool: name, args }) => {
       try {
         results[key] = await toolMap[name].handler({ ...args, _section: section });
       } catch (err) {
         results[key] = { error: err.message };
       }
-    })
-  );
+    }),
+    fetchAllCPCodes(section)
+      .then(d => { results.cpCodes = d; })
+      .catch(err => { results.cpCodes = { error: err.message }; }),
+  ]);
   res.json(results);
 });
 
