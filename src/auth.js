@@ -54,12 +54,13 @@ export async function akamaiRequest(path, { method = 'GET', body, params } = {},
     });
   }
 
-  const eg = new EdgeGrid({
-    client_token: creds.client_token,
-    client_secret: creds.client_secret,
-    access_token: creds.access_token,
-    host: creds.host,
-  });
+  // Pass as positional strings — passing an object triggers edgerc file lookup
+  const eg = new EdgeGrid(
+    creds.client_token,
+    creds.client_secret,
+    creds.access_token,
+    creds.host,
+  );
 
   return new Promise((resolve, reject) => {
     const req = {
